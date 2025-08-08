@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Math Flashcards (Web)</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="layout">
+      <div class="header">
+        <h1>Math Flashcards</h1>
+        <div class="actions">
+          <input id="urlInput" placeholder="Вставьте ссылку Notion" size="40" />
+          <button id="importUrlBtn" title="Импорт из Notion по ссылке">Импорт из URL</button>
+          <button id="importBtn">Импорт JSON</button>
+          <input type="file" id="fileInput" accept="application/json" hidden />
+          <button id="resetBtn" title="Очистить БД и перезагрузить примеры">Сброс</button>
+        </div>
+      </div>
+      <div class="content">
+        <aside class="sidebar">
+          <div class="topics">
+            <h2>Темы</h2>
+            <ul id="topicsList"></ul>
+          </div>
+        </aside>
+        <main class="main">
+          <section id="empty">Выберите тему слева</section>
+          <section id="cardView" class="hidden">
+            <div class="flashcard">
+              <div id="question" class="flashcard-question">—</div>
+              <div class="controls">
+                <label><input type="checkbox" id="correctChk" /> Вспомнил верно</label>
+                <button id="nextCard">Далее</button>
+              </div>
+            </div>
+            <div class="editor">
+              <h3>Редактор</h3>
+              <input id="qInput" placeholder="Вопрос" />
+              <textarea id="aInput" placeholder="Ответ / Пояснение"></textarea>
+              <button id="saveCard">Сохранить</button>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+  </html>
+
+
