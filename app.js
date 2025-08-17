@@ -129,12 +129,19 @@ function shuffle(arr) { arr.sort(() => Math.random() - 0.5); }
 function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[c])); }
 
 (async function init(){
-  // Импортируем только билеты со страницы по умолчанию, очищая БД
-  try {
-    await clearAll();
-    const data = await fetchNotionPublicPage(DEFAULT_NOTION_URL);
-    if (data) await importJson(data);
-  } catch {}
+  // Проверяем, есть ли уже данные в БД
+  const existingTopics = await listTopics();
+  
+  // Если БД пустая - импортируем билеты с Notion
+  if (existingTopics.length === 0) {
+    try {
+      const data = await fetchNotionPublicPage(DEFAULT_NOTION_URL);
+      if (data) await importJson(data);
+    } catch (error) {
+      console.log('Ошибка импорта из Notion:', error);
+    }
+  }
+  
   await load();
 })();
 
@@ -222,27 +229,118 @@ function extractChildPageLinks(doc, baseUrl) {
 function parsePageToTopicAndCards(content) {
   let title = 'Notion';
   const texts = [];
+  
   if (content.includes('<html')) {
     const doc = new DOMParser().parseFromString(content, 'text/html');
-    title = doc.querySelector('title')?.textContent?.trim() || title;
+    
+    // Стратегия 1: Ищем в мета-тегах и title
+    const metaTitle = doc.querySelector('meta[property="og:title"]')?.getAttribute('content') ||
+                     doc.querySelector('meta[name="title"]')?.getAttribute('content') ||
+                     doc.querySelector('title')?.textContent?.trim();
+    
+    if (metaTitle && metaTitle.length > 5) {
+      title = metaTitle.replace(/^Notion\s*[-–—]\s*/i, '').trim();
+    }
+    
+    // Стратегия 2: Ищем в заголовках страницы
+    if (title === 'Notion') {
+      const headings = doc.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      for (const heading of headings) {
+        const headingText = heading.textContent?.trim();
+        if (headingText && headingText.length > 5 && /\d+/.test(headingText)) {
+          title = headingText;
+          break;
+        }
+      }
+    }
+    
+    // Стратегия 3: Ищем в специальных Notion элементах
+    if (title === 'Notion') {
+      // Notion часто использует div с data-block-id для заголовков
+      const notionBlocks = doc.querySelectorAll('[data-block-id]');
+      for (const block of notionBlocks) {
+        const blockText = block.textContent?.trim();
+        if (blockText && blockText.length > 10 && /\d+\./.test(blockText)) {
+          // Проверяем, что это похоже на заголовок билета
+          if (blockText.includes('.') && 
+              (blockText.includes('Теорема') || blockText.includes('Билет') || 
+               blockText.includes('Вопрос') || blockText.includes('26') || 
+               blockText.includes('27') || blockText.includes('28'))) {
+            title = blockText;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Стратегия 4: Ищем в span элементах (Notion часто использует их для заголовков)
+    if (title === 'Notion') {
+      const spans = doc.querySelectorAll('span');
+      for (const span of spans) {
+        const spanText = span.textContent?.trim();
+        if (spanText && spanText.length > 15 && /\d+\./.test(spanText)) {
+          // Проверяем, что это похоже на полный заголовок билета
+          if (spanText.includes('.') && spanText.length > 20) {
+            title = spanText;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Стратегия 5: Ищем в любых элементах с текстом, содержащим номер билета
+    if (title === 'Notion') {
+      const allElements = doc.querySelectorAll('*');
+      for (const el of allElements) {
+        const elText = el.textContent?.trim();
+        if (elText && elText.length > 20 && /\d+\./.test(elText)) {
+          // Ищем текст, который содержит номер и описание
+          if (elText.includes('.') && 
+              (elText.includes('Теорема') || elText.includes('Билет') || 
+               elText.includes('Вопрос') || elText.includes('26') || 
+               elText.includes('27') || elText.includes('28'))) {
+            title = elText;
+            break;
+          }
+        }
+      }
+    }
+    
+    // Извлекаем контент для карточек
     const main = doc.querySelector('main') || doc.body;
-    const elements = Array.from(main.querySelectorAll('h1, h2, h3, p, li, blockquote, pre, code'));
+    const elements = Array.from(main.querySelectorAll('h1, h2, h3, p, li, blockquote, pre, code, div'));
     for (const el of elements) {
       const txt = (el.textContent || '').trim();
-      if (txt) texts.push(txt);
+      if (txt && txt.length > 3) texts.push(txt);
     }
   } else {
+    // Для текстового контента
     const lines = content.split(/\r?\n+/).map(s => s.trim()).filter(Boolean);
-    title = lines.find(s => s.length > 5) || title;
+    
+    // Ищем строку с номером билета как заголовок
+    for (const line of lines) {
+      if (line.length > 20 && /\d+\./.test(line)) {
+        if (line.includes('.') && 
+            (line.includes('Теорема') || line.includes('Билет') || 
+             line.includes('Вопрос') || line.includes('26') || 
+             line.includes('27') || line.includes('28'))) {
+          title = line;
+          break;
+        }
+      }
+    }
+    
     texts.push(...lines);
   }
-  // Убираем дубликаты подряд и слишком короткие элементы
+  
+  // Убираем дубликаты и слишком короткие элементы
   const cleaned = [];
   for (const t of texts) {
-    if (!t) continue;
+    if (!t || t.length < 3) continue;
     if (cleaned.length && cleaned[cleaned.length - 1] === t) continue;
     cleaned.push(t);
   }
+  
   const topicId = crypto.randomUUID();
   const pageCards = cleaned.map(t => ({ id: crypto.randomUUID(), question: t, answer: '' }));
   return { topic: { id: topicId, name: title, description: 'Импортировано из Notion' }, pageCards };
